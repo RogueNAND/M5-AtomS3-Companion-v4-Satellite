@@ -21,6 +21,11 @@ A compact, single-button satellite surface built for Companion v4 using the M5 A
 
 Ensure the LED is common-cathode with G7 as Ground.
 
+# Recomended LED
+AU: https://www.jaycar.com.au/tricolour-rgb-5mm-led-600-1000mcd-round-diffused/
+USA: https://www.adafruit.com/product/302
+
+
 ## Installation & Usage
 1. Clone this repository.  
 2. Open `CompanionSatelliteSingleButton.ino` in Arduino IDE (ESP32 board selected).  
@@ -43,7 +48,7 @@ Ensure the LED is common-cathode with G7 as Ground.
 - **Not connecting to Companion**: Ensure `companion_host` & `companion_port` are set correctly and device and PC are on same network.
 
 ## Version
-v1.0.0
+v1.2.0
 
 ## License
 MIT License — see [LICENSE](LICENSE) file for details.
