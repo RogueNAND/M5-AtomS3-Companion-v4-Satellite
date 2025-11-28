@@ -18,6 +18,7 @@
             - Normal (>6 chars)      : multi-line, centered (auto-wrap or manual "\n")
         * Uses COLOR/TEXTCOLOR for background/text in TEXT mode
         * Text Rotate (0/90/180/270 in WiFiManager, TEXT mode only)
+        * Yellow 4px border when button is pressed (TEXT mode only)
     - External RGB LED PWM output (G5 RED / G6 GREEN / G8 BLUE + G7 GND)
     - WiFiManager config portal (hold BtnA for 5s)
     - OTA firmware updates
@@ -95,8 +96,11 @@ int displayMode = DISPLAY_BITMAP; // default
 WiFiManagerParameter* custom_companionIP;
 WiFiManagerParameter* custom_companionPort;
 WiFiManagerParameter* custom_displayMode;
-WiFiManagerParameter* custom_rotation = nullptr;   // NEW: rotation parameter
+WiFiManagerParameter* custom_rotation = nullptr;   // rotation parameter
 int screenRotation = 0;  // 0 = 0°, 1 = 90°, 2 = 180°, 3 = 270° (TEXT mode only)
+
+// TEXT mode pressed-border flag (yellow outline when button pressed)
+bool textPressedBorder = false;
 
 // Forward declarations for text mode / brightness
 void setText(const String& txt);
@@ -122,13 +126,13 @@ void saveParamCallback() {
   String str_companionIP   = getParam("companionIP");
   String str_companionPort = getParam("companionPort");
   String str_displayMode   = getParam("displayMode");
-  String str_rotation      = getParam("rotation");   // NEW: rotation (0/90/180/270)
+  String str_rotation      = getParam("rotation");   // rotation (0/90/180/270)
 
   preferences.begin("companion", false);
   if (str_companionIP.length() > 0)    preferences.putString("companionip",   str_companionIP);
   if (str_companionPort.length() > 0)  preferences.putString("companionport", str_companionPort);
   if (str_displayMode.length() > 0)    preferences.putString("displayMode",   str_displayMode);
-  if (str_rotation.length() > 0)       preferences.putString("rotation",      str_rotation); // NEW
+  if (str_rotation.length() > 0)       preferences.putString("rotation",      str_rotation);
   preferences.end();
 }
 
@@ -468,6 +472,22 @@ bool wrapToLines(const String& src, String& l1, String& l2, String& l3, int& out
 }
 
 // ------------------------------------------------------------
+// Draw yellow border when button is pressed in TEXT mode
+// ------------------------------------------------------------
+void drawTextPressedBorderIfNeeded() {
+  if (!textPressedBorder) return;
+
+  int w = M5.Display.width();
+  int h = M5.Display.height();
+  uint16_t borderColor = M5.Display.color565(255, 255, 0); // yellow
+
+  // 4px thick border using nested rectangles
+  for (int i = 0; i < 4; i++) {
+    M5.Display.drawRect(i, i, w - i * 2, h - i * 2, borderColor);
+  }
+}
+
+// ------------------------------------------------------------
 // Decide layout based on currentText (no scrolling)
 // ------------------------------------------------------------
 void analyseLayout() {
@@ -557,7 +577,11 @@ void refreshTextDisplay() {
   M5.Display.setTextColor(txtColor, bgColor);
   M5.Display.setTextWrap(false);
 
-  if (currentText.length() == 0) return;
+  if (currentText.length() == 0) {
+    // Still draw border if requested (e.g. pressed but no text)
+    drawTextPressedBorderIfNeeded();
+    return;
+  }
 
   int screenW = M5.Display.width();
   int screenH = M5.Display.height();
@@ -576,6 +600,8 @@ void refreshTextDisplay() {
       int y = topY + i * lineHeight;
       M5.Display.drawString(manualLines[i], screenW / 2, y);
     }
+
+    drawTextPressedBorderIfNeeded();
     return;
   }
 
@@ -587,6 +613,7 @@ void refreshTextDisplay() {
   if (len <= 2) {
     setExtraBigFont();
     M5.Display.drawString(currentText, screenW / 2, screenH / 2);
+    drawTextPressedBorderIfNeeded();
     return;
   }
 
@@ -594,6 +621,7 @@ void refreshTextDisplay() {
   if (len == 3) {
     setUltraFont();
     M5.Display.drawString(currentText, screenW / 2, screenH / 2);
+    drawTextPressedBorderIfNeeded();
     return;
   }
 
@@ -601,6 +629,7 @@ void refreshTextDisplay() {
   if (len <= 6) {
     setLargeFont();
     M5.Display.drawString(currentText, screenW / 2, screenH / 2);
+    drawTextPressedBorderIfNeeded();
     return;
   }
 
@@ -618,6 +647,9 @@ void refreshTextDisplay() {
       M5.Display.drawString(lines[i], screenW / 2, y);
     }
   }
+
+  // Finally, overlay yellow border if button is pressed
+  drawTextPressedBorderIfNeeded();
 }
 
 // ------------------------------------------------------------
@@ -892,9 +924,7 @@ void connectToNetwork() {
   custom_companionPort = new WiFiManagerParameter("companionPort", "Satellite Port", companion_port, 6);
   custom_displayMode   = new WiFiManagerParameter("displayMode", "Display Mode (bitmap/text)", modeBuf, 8);
 
-  // --------------------------------------------------------
-  // NEW: Rotation parameter (degrees: 0/90/180/270) for TEXT mode
-  // --------------------------------------------------------
+  // Rotation parameter (degrees: 0/90/180/270) for TEXT mode
   custom_rotation = new WiFiManagerParameter(
     "rotation",
     "Text Rotation (0/90/180/270)",
@@ -905,7 +935,7 @@ void connectToNetwork() {
   wifiManager.addParameter(custom_companionIP);
   wifiManager.addParameter(custom_companionPort);
   wifiManager.addParameter(custom_displayMode);
-  wifiManager.addParameter(custom_rotation);   // NEW
+  wifiManager.addParameter(custom_rotation);
   wifiManager.setSaveParamsCallback(saveParamCallback);
 
   std::vector<const char*> menu = { "wifi", "param", "info", "sep", "restart", "exit" };
@@ -933,7 +963,7 @@ void connectToNetwork() {
     preferences.getString("companionport").toCharArray(companion_port, sizeof(companion_port));
 
   String modeStr = preferences.getString("displayMode", custom_displayMode->getValue());
-  String rotStr  = preferences.getString("rotation",   custom_rotation->getValue()); // NEW
+  String rotStr  = preferences.getString("rotation",   custom_rotation->getValue());
   preferences.end();
 
   // Display mode (bitmap / text)
@@ -943,14 +973,7 @@ void connectToNetwork() {
     displayMode = DISPLAY_BITMAP;
   }
 
-  // ------------------------------------------------------------
-  // NEW: Map rotation degrees -> M5 rotation index (0..3)
-  //   0°   -> 0
-  //   90°  -> 1
-  //   180° -> 2
-  //   270° -> 3
-  // Anything else defaults to 0°
-  // ------------------------------------------------------------
+  // Map rotation degrees -> M5 rotation index (0..3)
   int rotDeg = rotStr.toInt();
   if      (rotDeg == 90)  screenRotation = 1;
   else if (rotDeg == 180) screenRotation = 2;
@@ -1007,7 +1030,7 @@ void setup() {
     preferences.getString("companionport").toCharArray(companion_port, sizeof(companion_port));
 
   String modeStr = preferences.getString("displayMode", "bitmap");
-  String rotStr  = preferences.getString("rotation",   "0");   // NEW: default rotation 0°
+  String rotStr  = preferences.getString("rotation",   "0");   // default rotation 0°
 
   if (modeStr.equalsIgnoreCase("text")) {
     displayMode = DISPLAY_TEXT;
@@ -1038,11 +1061,9 @@ void setup() {
   auto cfg = M5.config();
   M5.begin(cfg);
 
-  // --------------------------------------------------------
   // Apply initial rotation:
   //   - TEXT mode   -> use screenRotation
   //   - BITMAP mode -> fixed at 0 (no rotation)
-  // --------------------------------------------------------
   if (displayMode == DISPLAY_TEXT) {
     M5.Display.setRotation(screenRotation);
   } else {
@@ -1176,11 +1197,23 @@ void loop() {
     if (M5.BtnA.wasPressed()) {
       Serial.println("[BTN] Short press -> KEY=0 PRESSED=true");
       client.println("KEY-PRESS DEVICEID=" + deviceID + " KEY=0 PRESSED=true");
+
+      // Show yellow border while pressed in TEXT mode
+      if (displayMode == DISPLAY_TEXT) {
+        textPressedBorder = true;
+        refreshTextDisplay();  // redraw text + border
+      }
     }
 
     if (M5.BtnA.wasReleased()) {
       Serial.println("[BTN] Release -> KEY=0 PRESSED=false");
       client.println("KEY-PRESS DEVICEID=" + deviceID + " KEY=0 PRESSED=false");
+
+      // Remove border when released in TEXT mode
+      if (displayMode == DISPLAY_TEXT) {
+        textPressedBorder = false;
+        refreshTextDisplay();  // redraw text without border
+      }
     }
 
     // Periodic PING
