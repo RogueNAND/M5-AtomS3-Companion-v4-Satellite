@@ -39,6 +39,55 @@
 #define DISPLAY_TEXT   1
 
 // ============================================================================
+// Data Structures
+// ============================================================================
+
+// Update data structure
+struct PendingUpdate {
+  String bitmapBase64;
+  String textContent;
+  int colorR, colorG, colorB;
+  int bgR, bgG, bgB;
+  int fgR, fgG, fgB;
+  bool hasColor;
+  bool hasBgColor;
+  bool hasFgColor;
+  bool hasData;  // true if update is pending
+};
+
+// Simple 2-item queue for rapid button events
+struct UpdateQueue {
+  PendingUpdate items[2];
+  int count;  // 0, 1, or 2
+
+  UpdateQueue() : count(0) {}
+
+  void push(const PendingUpdate& update) {
+    if (count < 2) {
+      items[count] = update;
+      count++;
+    } else {
+      // Queue full: drop oldest, keep newest
+      items[0] = items[1];
+      items[1] = update;
+    }
+  }
+
+  PendingUpdate pop() {
+    PendingUpdate result = items[0];
+    if (count > 1) {
+      items[0] = items[1];
+    }
+    count--;
+    return result;
+  }
+
+  bool isEmpty() const {
+    return count == 0;
+  }
+};
+
+// ============================================================================
 // Function Prototypes
 // ============================================================================
 
@@ -69,6 +118,10 @@ void initializeMDNS();
 void loadPreferences();
 void saveParamCallback();
 void runBootMenu();
+
+// Update handling
+void enqueueUpdate(const PendingUpdate& update);
+void processPendingBitmap(const String& bitmapBase64);
 
 // ============================================================================
 // Global Objects & State
@@ -140,8 +193,54 @@ bool useManualLines = false;
 uint16_t bgColor   = BLACK;
 uint16_t txtColor  = WHITE;
 
+// Update queue state
+UpdateQueue updateQueue;
+bool isRenderingNow = false;
+unsigned long lastRenderDuration = 0;
+
 void logger(const String& s, const String& type = "info") {
   Serial.println(s);
+}
+
+void enqueueUpdate(const PendingUpdate& update) {
+  updateQueue.push(update);
+}
+
+void processPendingBitmap(const String& bitmapBase64) {
+  // Move existing decode logic from Network.ino here
+  int inLen = bitmapBase64.length();
+  if (inLen <= 0) return;
+
+  size_t out_max = (inLen * 3) / 4 + 4;
+  std::unique_ptr<uint8_t[]> buf(new uint8_t[out_max]);
+  size_t out_len = 0;
+
+  int res = mbedtls_base64_decode(buf.get(), out_max, &out_len,
+                                  (const unsigned char*)bitmapBase64.c_str(), inLen);
+  if (res != 0) {
+    Serial.println("[RENDER] Base64 decode failed");
+    return;
+  }
+
+  int sizeRGB  = sqrt(out_len / 3);
+  int sizeRGBA = sqrt(out_len / 4);
+  bool isRGB   = (sizeRGB  * sizeRGB  * 3 == (int)out_len);
+  bool isRGBA  = (sizeRGBA * sizeRGBA * 4 == (int)out_len);
+
+  if (isRGB) {
+    drawBitmapRGB888FullScreen(buf.get(), sizeRGB);
+  } else if (isRGBA) {
+    // Strip alpha channel
+    int pixels = sizeRGBA * sizeRGBA;
+    std::unique_ptr<uint8_t[]> rgb(new uint8_t[pixels * 3]);
+    uint8_t* s = buf.get();
+    uint8_t* d = rgb.get();
+    for (int i = 0; i < pixels; i++) {
+      d[0] = s[0]; d[1] = s[1]; d[2] = s[2];
+      s += 4; d += 3;
+    }
+    drawBitmapRGB888FullScreen(rgb.get(), sizeRGBA);
+  }
 }
 
 void setup() {
@@ -244,6 +343,44 @@ void loop() {
       String line = client.readStringUntil('\n');
       line.trim();
       if (line.length() > 0) parseAPI(line);
+    }
+
+    // Process next update from queue
+    if (!isRenderingNow && !updateQueue.isEmpty()) {
+      isRenderingNow = true;
+      unsigned long renderStart = millis();
+
+      PendingUpdate update = updateQueue.pop();
+
+      // Apply LED color
+      if (update.hasColor) {
+        setExternalLedColor(update.colorR, update.colorG, update.colorB);
+      }
+
+      // Render based on mode
+      if (displayMode == DISPLAY_BITMAP) {
+        if (update.bitmapBase64.length() > 0) {
+          processPendingBitmap(update.bitmapBase64);
+        }
+      } else {
+        // TEXT mode
+        if (update.hasBgColor) {
+          bgColor = M5.Display.color565(update.bgR, update.bgG, update.bgB);
+        }
+        if (update.hasFgColor) {
+          txtColor = M5.Display.color565(update.fgR, update.fgG, update.fgB);
+        }
+        if (update.textContent.length() > 0) {
+          setText(update.textContent);
+        } else {
+          refreshTextDisplay();
+        }
+      }
+
+      isRenderingNow = false;
+
+      lastRenderDuration = millis() - renderStart;
+      Serial.printf("[RENDER] Complete in %lu ms (queue size: %d)\n", lastRenderDuration, updateQueue.count);
     }
 
     // Button press: send KEY-PRESS message

@@ -6,7 +6,7 @@ Perfect for enhancing productions with on-stage triggers, tally, timers, cues, a
 
 Features
 - Two display modes:
-  • Bitmap Mode — Renders Companion’s 72×72 bitmaps upscaled to 128×128
+  • Bitmap Mode — Renders Companion's 64x64 bitmaps upscaled to 128×128
   • Text Mode (v1.3) — Fast, low-latency, no bitmap fetches
     - 1–2 chars → Extra-big font
     - 3 chars → Ultra-large font

@@ -179,17 +179,38 @@ void applyDisplayBrightness() {
 }
 
 void drawBitmapRGB888FullScreen(uint8_t* rgb, int size) {
-  int sw = M5.Display.width();
-  int sh = M5.Display.height();
+  int sw = M5.Display.width();   // 128
+  int sh = M5.Display.height();  // 128
 
+  // Allocate upscaled buffer (128x128x2 = 32KB RGB565)
+  uint16_t* upscaled = (uint16_t*)ps_malloc(sw * sh * sizeof(uint16_t));
+  if (!upscaled) {
+    upscaled = (uint16_t*)malloc(sw * sh * sizeof(uint16_t));
+  }
+  if (!upscaled) {
+    Serial.println("[RENDER] Out of memory!");
+    return;  // Can't render without memory
+  }
+
+  // Pre-upscale with nearest-neighbor
   for (int y = 0; y < sh; y++) {
-    int srcY = (y * size) / sh;
+    int srcY = y >> 1;  // Bit shift for 2x scaling
     for (int x = 0; x < sw; x++) {
-      int srcX = (x * size) / sw;
-      int idx = (srcY * size + srcX) * 3;
-      M5.Display.drawPixel(x, y, M5.Display.color565(rgb[idx], rgb[idx+1], rgb[idx+2]));
+      int srcX = x >> 1;
+      int srcIdx = (srcY * size + srcX) * 3;
+      upscaled[y * sw + x] = M5.Display.color565(rgb[srcIdx], rgb[srcIdx+1], rgb[srcIdx+2]);
     }
   }
+
+  // Single block transfer
+  M5.Display.startWrite();
+  M5.Display.setAddrWindow(0, 0, sw, sh);
+  M5.Display.setSwapBytes(true);  // May be needed for correct color order
+  M5.Display.pushPixels(upscaled, sw * sh);
+  M5.Display.setSwapBytes(false);
+  M5.Display.endWrite();
+
+  free(upscaled);
 }
 
 // ============================================================================

@@ -25,7 +25,7 @@ void sendAddDevice() {
     cmd = "ADD-DEVICE DEVICEID=" + companionDeviceID +
           " PRODUCT_NAME=\"M5 AtomS3 (BITMAP)\" "
           "KEYS_TOTAL=1 KEYS_PER_ROW=1 "
-          "COLORS=rgb TEXT=false BITMAPS=72";
+          "COLORS=rgb TEXT=false BITMAPS=64";
   }
 
   client.println(cmd);
@@ -33,7 +33,12 @@ void sendAddDevice() {
 }
 
 void handleKeyState(const String& line) {
-  Serial.println("[API] KEY-STATE line: " + line);
+  PendingUpdate update;
+  update.hasColor = false;
+  update.hasBgColor = false;
+  update.hasFgColor = false;
+  update.bitmapBase64 = "";
+  update.textContent = "";
 
   // Parse COLOR for LED (both modes)
   int colorPos = line.indexOf("COLOR=");
@@ -43,8 +48,6 @@ void handleKeyState(const String& line) {
     if (end < 0) end = line.length();
     String c = line.substring(start, end);
     c.trim();
-
-    Serial.println("[API] COLOR raw: " + c);
 
     if (c.startsWith("\"") && c.endsWith("\""))
       c = c.substring(1, c.length() - 1);
@@ -67,22 +70,16 @@ void handleKeyState(const String& line) {
         b = s.substring(p2+1).toInt();
       }
 
-      Serial.print("[API] Parsed LED COLOR r/g/b = ");
-      Serial.print(r); Serial.print("/");
-      Serial.print(g); Serial.print("/");
-      Serial.println(b);
-
-      setExternalLedColor(r, g, b);
-    } else {
-      Serial.println("[API] COLOR is not rgba()/rgb(), ignoring for LED.");
+      update.colorR = r;
+      update.colorG = g;
+      update.colorB = b;
+      update.hasColor = true;
     }
-  } else {
-    Serial.println("[API] No COLOR= field in KEY-STATE for LED.");
   }
 
   // Display handling by mode
   if (displayMode == DISPLAY_BITMAP) {
-    // BITMAP mode
+    // Extract BITMAP= base64 string
     int bmpPos = line.indexOf("BITMAP=");
     if (bmpPos >= 0) {
       int start = bmpPos + 7;
@@ -94,66 +91,49 @@ void handleKeyState(const String& line) {
       if (bmp.startsWith("\"") && bmp.endsWith("\""))
         bmp = bmp.substring(1, bmp.length() - 1);
 
-      int inLen = bmp.length();
-      if (inLen <= 0) {
-        Serial.println("[API] BITMAP present but empty.");
-        return;
-      }
-
-      Serial.println("[API] BITMAP base64 length: " + String(inLen));
-
-      size_t out_max = (inLen * 3) / 4 + 4;
-      std::unique_ptr<uint8_t[]> buf(new uint8_t[out_max]);
-      size_t out_len = 0;
-
-      int res = mbedtls_base64_decode(buf.get(), out_max, &out_len,
-                                      (const unsigned char*)bmp.c_str(), inLen);
-      if (res != 0) {
-        Serial.println("[API] Base64 decode failed, res=" + String(res) + " out_len=" + String(out_len));
-        return;
-      }
-
-      Serial.println("[API] Decoded BITMAP bytes: " + String(out_len));
-
-      int sizeRGB  = sqrt(out_len / 3);
-      int sizeRGBA = sqrt(out_len / 4);
-
-      bool isRGB  = (sizeRGB  * sizeRGB  * 3 == (int)out_len);
-      bool isRGBA = (sizeRGBA * sizeRGBA * 4 == (int)out_len);
-
-      if (isRGB) {
-        Serial.println("[API] BITMAP detected as RGB, size=" + String(sizeRGB));
-        drawBitmapRGB888FullScreen(buf.get(), sizeRGB);
-      } else if (isRGBA) {
-        Serial.println("[API] BITMAP detected as RGBA, size=" + String(sizeRGBA));
-        int pixels = sizeRGBA * sizeRGBA;
-        std::unique_ptr<uint8_t[]> rgb(new uint8_t[pixels * 3]);
-        uint8_t* s = buf.get();
-        uint8_t* d = rgb.get();
-        for (int i = 0; i < pixels; i++) {
-          d[0] = s[0];
-          d[1] = s[1];
-          d[2] = s[2];
-          s += 4;
-          d += 3;
-        }
-        drawBitmapRGB888FullScreen(rgb.get(), sizeRGBA);
-      } else {
-        Serial.println("[API] BITMAP size mismatch, cannot infer square dimensions.");
-      }
+      update.bitmapBase64 = bmp;
     }
   } else {
-    // TEXT mode
-    handleTextModeColors(line);
-    handleKeyStateTextField(line);
+    // TEXT mode - parse colors and text
+    int r, g, b;
+    if (parseColorToken(line, "COLOR", r, g, b)) {
+      update.bgR = r;
+      update.bgG = g;
+      update.bgB = b;
+      update.hasBgColor = true;
+    }
+
+    if (parseColorToken(line, "TEXTCOLOR", r, g, b)) {
+      update.fgR = r;
+      update.fgG = g;
+      update.fgB = b;
+      update.hasFgColor = true;
+    }
+
+    // Extract TEXT= field
+    int tPos = line.indexOf("TEXT=");
+    if (tPos >= 0) {
+      int firstQuote = line.indexOf('"', tPos);
+      if (firstQuote >= 0) {
+        int secondQuote = line.indexOf('"', firstQuote + 1);
+        if (secondQuote >= 0) {
+          String textField = line.substring(firstQuote + 1, secondQuote);
+          String decoded = decodeCompanionText(textField);
+          decoded.replace("\\n", "\n");
+          update.textContent = decoded;
+        }
+      }
+    }
   }
+
+  enqueueUpdate(update);
 }
 
 void parseAPI(const String& apiData) {
   if (apiData.length() == 0) return;
   if (apiData.startsWith("PONG"))   return;
 
-  Serial.println("[API] RX: " + apiData);
+  Serial.println("[API] RX");
 
   if (apiData.startsWith("PING")) {
     String payload = apiData.substring(apiData.indexOf(' ') + 1);
@@ -175,7 +155,9 @@ void parseAPI(const String& apiData) {
   }
 
   if (apiData.startsWith("KEYS-CLEAR")) {
-    Serial.println("[API] KEYS-CLEAR received");
+    Serial.println("[API] KEYS-CLEAR");
+    updateQueue.count = 0;  // Clear queue
+
     setExternalLedColor(0,0,0);
     if (displayMode == DISPLAY_TEXT) {
       setText("");
