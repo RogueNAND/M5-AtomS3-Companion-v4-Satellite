@@ -36,14 +36,15 @@ USA: https://www.adafruit.com/product/302
 Installation & Usage
 1. Clone this repository.
 2. Open M5-AtomS3-Companion-v4-Satellite.ino in Arduino IDE.
-3. Select M5AtomS3 via ESP32 board manager.
-4. Install libraries: M5Unified, WiFiManager, Preferences.
-5. Flash to the AtomS3.
-6. On first boot, device will create a WiFi access point (SSID = m5atom-s3_XXXXX).
-7. Connect to the AP and configure WiFi credentials, Companion IP/Port, and display mode.
-8. Device will connect to WiFi and show "Ready" screen.
-9. In Companion v4: Device is automatically discovered via mDNS, or manually add using deviceID.
-10. Press button to send KEY-PRESS to Companion. LED mirrors key color.
+3. Arduino will automatically load all .ino tabs (Hardware, Display, Network, Config).
+4. Select M5AtomS3 via ESP32 board manager.
+5. Install libraries: M5Unified, WiFiManager, Preferences.
+6. Flash to the AtomS3.
+7. On first boot, device will create a WiFi access point (SSID = m5atom-s3_XXXXX).
+8. Connect to the AP and configure WiFi credentials, Companion IP/Port, and display mode.
+9. Device will connect to WiFi and show "Ready" screen.
+10. In Companion v4: Device is automatically discovered via mDNS, or manually add using deviceID.
+11. Press button to send KEY-PRESS to Companion. LED mirrors key color.
 
 Boot Menu
 - Enter menu: Hold button during boot
