@@ -121,6 +121,8 @@ void initializeMDNS();
 void loadPreferences();
 void saveParamCallback();
 void runBootMenu();
+void buildDisplayModeHTML(char* buffer, size_t bufferSize, int currentMode);
+void buildRotationHTML(char* buffer, size_t bufferSize, int currentRotation);
 
 // Update handling
 void enqueueUpdate(const PendingUpdate& update);

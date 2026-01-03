@@ -511,27 +511,15 @@ void connectToNetwork() {
     ESP.restart();
   }
 
-  // Build default displayMode string
-  char modeBuf[8];
-  if (displayMode == DISPLAY_TEXT) {
-    snprintf(modeBuf, sizeof(modeBuf), "text");
-  } else {
-    snprintf(modeBuf, sizeof(modeBuf), "bitmap");
-  }
-
-  // Build rotation string
-  char rotBuf[5];
-  int rotDeg = 0;
-  if      (screenRotation == 1) rotDeg = 90;
-  else if (screenRotation == 2) rotDeg = 180;
-  else if (screenRotation == 3) rotDeg = 270;
-  else                          rotDeg = 0;
-  snprintf(rotBuf, sizeof(rotBuf), "%d", rotDeg);
+  char displayModeHTML[512];
+  char rotationHTML[768];
+  buildDisplayModeHTML(displayModeHTML, sizeof(displayModeHTML), displayMode);
+  buildRotationHTML(rotationHTML, sizeof(rotationHTML), screenRotation);
 
   custom_companionIP   = new WiFiManagerParameter("companionIP", "Companion IP", companion_host, 40);
   custom_companionPort = new WiFiManagerParameter("companionPort", "Satellite Port", companion_port, 6);
-  custom_displayMode   = new WiFiManagerParameter("displayMode", "Display Mode (bitmap/text)", modeBuf, 8);
-  custom_rotation      = new WiFiManagerParameter("rotation", "Text Rotation (0/90/180/270)", rotBuf, 4);
+  custom_displayMode   = new WiFiManagerParameter(displayModeHTML);
+  custom_rotation      = new WiFiManagerParameter(rotationHTML);
 
   wifiManager.addParameter(custom_companionIP);
   wifiManager.addParameter(custom_companionPort);
@@ -633,7 +621,7 @@ void connectToNetwork() {
   Serial.print("[Config] Display mode set to: ");
   Serial.println(displayMode == DISPLAY_TEXT ? "TEXT" : "BITMAP");
   Serial.print("[Config] Text rotation degrees: ");
-  Serial.println(rotDeg);
+  Serial.println(rotStr);
   Serial.print("[Config] Text rotation index: ");
   Serial.println(screenRotation);
 }

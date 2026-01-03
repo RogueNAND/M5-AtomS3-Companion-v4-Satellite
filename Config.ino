@@ -27,6 +27,34 @@ String getParam(const String& name) {
   return "";
 }
 
+void buildDisplayModeHTML(char* buffer, size_t bufferSize, int currentMode) {
+  snprintf(buffer, bufferSize,
+    "<br/><label for='displayMode'>Display Mode</label>"
+    "<select name='displayMode' id='displayMode'>"
+    "<option value='bitmap'%s>Bitmap</option>"
+    "<option value='text'%s>Text</option>"
+    "</select>",
+    (currentMode == DISPLAY_BITMAP) ? " selected" : "",
+    (currentMode == DISPLAY_TEXT) ? " selected" : ""
+  );
+}
+
+void buildRotationHTML(char* buffer, size_t bufferSize, int currentRotation) {
+  snprintf(buffer, bufferSize,
+    "<br/><label for='rotation'>Text Rotation</label>"
+    "<select name='rotation' id='rotation'>"
+    "<option value='0'%s>0°</option>"
+    "<option value='90'%s>90°</option>"
+    "<option value='180'%s>180°</option>"
+    "<option value='270'%s>270°</option>"
+    "</select>",
+    (currentRotation == 0) ? " selected" : "",
+    (currentRotation == 1) ? " selected" : "",
+    (currentRotation == 2) ? " selected" : "",
+    (currentRotation == 3) ? " selected" : ""
+  );
+}
+
 void saveParamCallback() {
   String str_companionIP   = getParam("companionIP");
   String str_companionPort = getParam("companionPort");
@@ -104,11 +132,20 @@ void startConfigPortal() {
   String savedPort = preferences.getString("companionport", "16622");
   preferences.end();
 
+  char displayModeHTML[512];
+  char rotationHTML[768];
+  buildDisplayModeHTML(displayModeHTML, sizeof(displayModeHTML), displayMode);
+  buildRotationHTML(rotationHTML, sizeof(rotationHTML), screenRotation);
+
   custom_companionIP   = new WiFiManagerParameter("companionIP", "Companion IP", savedHost.c_str(), 40);
   custom_companionPort = new WiFiManagerParameter("companionPort", "Satellite Port", savedPort.c_str(), 6);
+  custom_displayMode   = new WiFiManagerParameter(displayModeHTML);
+  custom_rotation      = new WiFiManagerParameter(rotationHTML);
 
   wifiManager.addParameter(custom_companionIP);
   wifiManager.addParameter(custom_companionPort);
+  wifiManager.addParameter(custom_displayMode);
+  wifiManager.addParameter(custom_rotation);
   wifiManager.setSaveParamsCallback(saveParamCallback);
 
   std::vector<const char*> menu = { "wifi", "param", "info", "sep", "restart", "exit" };
