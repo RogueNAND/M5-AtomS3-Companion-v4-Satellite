@@ -15,6 +15,7 @@ Features
     - Supports COLOR= and TEXTCOLOR=
 - External RGB LED output on G8/G5/G6 (G7 = Ground), mirrors key colour
 - Interactive boot menu — Hold button during boot to configure settings
+- QR code display for easy WiFi setup and web portal access
 - mDNS service discovery (companion-satellite._tcp) for automatic device discovery
 - OTA updates via ArduinoOTA
 - Auto deviceID: m5atom-s3_XXXXX (last 5 MAC chars)
@@ -41,10 +42,11 @@ Installation & Usage
 5. Install libraries: M5Unified, WiFiManager, Preferences.
 6. Flash to the AtomS3.
 7. On first boot, device will create a WiFi access point (SSID = m5atom-s3_XXXXX).
-8. Connect to the AP and configure WiFi credentials, Companion IP/Port, and display mode.
-9. Device will connect to WiFi and show "Ready" screen.
-10. In Companion v4: Device is automatically discovered via mDNS, or manually add using deviceID.
-11. Press button to send KEY-PRESS to Companion. LED mirrors key color.
+8. Device displays QR code for easy WiFi connection (press button to toggle to text view).
+9. Scan QR code or connect manually to the AP, then configure WiFi credentials, Companion IP/Port, and display mode at 192.168.4.1.
+10. Device will connect to WiFi and show "Ready" screen.
+11. In Companion v4: Device is automatically discovered via mDNS, or manually add using deviceID.
+12. Press button to send KEY-PRESS to Companion. LED mirrors key color.
 
 Boot Menu
 - Enter menu: Hold button during boot
@@ -52,8 +54,8 @@ Boot Menu
 - Select: Hold for 1 second to select current option
 - Options:
   - Boot: Normal — Continue normal boot
-  - Boot: Web Config — Open config portal on current WiFi
-  - Boot: WiFi AP — Create WiFi AP for reconfiguration (SSID = m5atom-s3_XXXXX)
+  - Boot: Web Config — Open config portal on current WiFi (displays IP + QR code for portal URL)
+  - Boot: Reset — Create WiFi AP for reconfiguration (displays WiFi QR code, press button to toggle to text view)
   - Display: BITMAP/TEXT — Toggle display mode (saves immediately)
   - Rotation: 0°/90°/180°/270° — Adjust text rotation (TEXT mode only, saves immediately)
 
@@ -84,6 +86,7 @@ v1.4 (Community)
 - mDNS service discovery for automatic device detection
 - DeviceID format changed to m5atom-s3_XXXXX (last 5 MAC chars)
 - Interactive boot menu for configuration without web portal
+- QR codes for quick AP and config portal connections
 - Improved boot messages for better clarity
 - Faster boot time (reduced delays by ~2 seconds)
 - Removed runtime 5s long-press config portal (enables Companion delayed actions)

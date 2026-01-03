@@ -445,17 +445,69 @@ void connectToNetwork() {
     wifiManager.setSTAStaticIPConfig(stationIP, stationGW, stationMask);
 
   WiFi.mode(WIFI_STA);
+  String wifiHostname = "m5atom-s3_" + deviceID.substring(deviceID.length() - 5);
+
+  // Calculate QR code position and size
+  int textHeight = 12;  // Approx height of IP text + margin
+  int qrMargin = 2;
+  int qrY = textHeight + qrMargin;
+  int availableHeight = M5.Display.height() - qrY - qrMargin;
+  int qrSize = (availableHeight < M5.Display.width()) ? availableHeight : M5.Display.width();
+  int qrX = (M5.Display.width() - qrSize) / 2;
 
   // AP + config portal mode
   if (forceRouterModeOnBoot) {
     Serial.println("[WiFi] Boot-hold: starting CONFIG portal (AP)");
-    String msg =
-      "WiFi CONFIG\n\n"
-      "SSID:\n" + deviceID +
-      "\n\n192.168.4.1";
-    drawCenterText(msg, WHITE, BLACK);
 
-    while (wifiManager.startConfigPortal(deviceID.c_str(), "")) {}
+    // Build WiFi QR code string
+    String qrWifiString = "WIFI:T:nopass;S:" + wifiHostname + ";P:;;";
+
+    bool showQR = true;
+    bool lastShowQR = true;
+
+    // Start non-blocking config portal
+    wifiManager.setConfigPortalBlocking(false);
+    wifiManager.startConfigPortal(wifiHostname.c_str(), "");
+
+    // Display initial QR code
+    M5.Display.fillScreen(BLACK);
+    M5.Display.setTextColor(WHITE, BLACK);
+
+    // Draw text at top
+    M5.Display.setFont(&fonts::Font0);
+    M5.Display.setTextSize(1);
+    M5.Display.setTextDatum(top_center);
+    M5.Display.drawString("Press for Details", M5.Display.width() / 2, 4);
+    M5.Display.qrcode(qrWifiString.c_str(), qrX, qrY, qrSize, 6);
+
+    // Run portal until connected or timeout
+    while (WiFi.status() != WL_CONNECTED) {
+      M5.update();
+      wifiManager.process();
+
+      // Toggle view on button press
+      if (M5.BtnA.wasPressed()) {
+        showQR = !showQR;
+      }
+
+      // Redraw only if view changed
+      if (showQR != lastShowQR) {
+        if (showQR) {
+          M5.Display.fillScreen(BLACK);
+          M5.Display.qrcode(qrWifiString.c_str(), 0, 0, 128, 6);  // Use entire screen now that the user knows to Press for Details
+        } else {
+          String msg =
+            "WiFi CONFIG\n\n"
+            "SSID:\n" + wifiHostname +
+            "\n\n192.168.4.1";
+          drawCenterText(msg, WHITE, BLACK);
+        }
+        lastShowQR = showQR;
+      }
+
+      delay(10);
+    }
+
     ESP.restart();
   }
 
@@ -492,7 +544,6 @@ void connectToNetwork() {
   wifiManager.setClass("invert");
   wifiManager.setConfigPortalTimeout(180);
 
-  String wifiHostname = "m5atom-s3_" + deviceID.substring(deviceID.length() - 5);
   wifiManager.setHostname(wifiHostname.c_str());
   Serial.printf("[WiFi] WiFiManager hostname set to: %s\n", wifiHostname.c_str());
 
@@ -522,10 +573,21 @@ void connectToNetwork() {
 
     // Web config portal (stay on current WiFi)
     if (forceConfigPortalOnBoot) {
-      String msg =
-        "CONFIG PORTAL\n\n" +
-        WiFi.localIP().toString();
-      drawCenterText(msg, WHITE, BLACK);
+      String ipAddress = WiFi.localIP().toString();
+      String portalURL = "http://" + ipAddress;
+
+      // Clear screen and setup display
+      M5.Display.fillScreen(BLACK);
+      M5.Display.setTextColor(WHITE, BLACK);
+
+      // Draw IP address at top
+      M5.Display.setFont(&fonts::Font0);
+      M5.Display.setTextSize(1);
+      M5.Display.setTextDatum(top_center);
+      M5.Display.drawString(ipAddress, M5.Display.width() / 2, 4);
+
+      // Draw QR code
+      M5.Display.qrcode(portalURL.c_str(), qrX, qrY, qrSize, 6);
 
       wifiManager.startWebPortal();
 
