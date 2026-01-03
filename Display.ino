@@ -181,9 +181,9 @@ void drawCenterText(const String& txt, uint16_t color, uint16_t bg) {
 
 void applyDisplayBrightness() {
   int p = brightness;
-  if (p < 0)   p = 0;
+  if (p < 1)   p = 1;
   if (p > 100) p = 100;
-  uint8_t level = map(p, 0, 100, 0, 255);
+  uint8_t level = map(p, 1, 100, 0, 255);
   M5.Display.setBrightness(level);
 }
 
