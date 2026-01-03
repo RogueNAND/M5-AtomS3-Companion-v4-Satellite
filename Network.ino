@@ -33,6 +33,9 @@ void sendAddDevice() {
 }
 
 void handleKeyState(const String& line) {
+  // Track content updates for ping interval backoff
+  lastContentUpdateTime = millis();
+
   PendingUpdate update;
   update.hasColor = false;
   update.hasBgColor = false;
@@ -150,8 +153,17 @@ void handleKeyState(const String& line) {
 }
 
 void parseAPI(const String& apiData) {
+  // ANY message from Companion means connection is alive
+  lastMessageTime = millis();
+  hasConnectedOnce = true;
+
+  if (unansweredPingCount > 0) {
+    Serial.println("[PING] PONG");
+    unansweredPingCount = 0;
+  }
+
   if (apiData.length() == 0) return;
-  if (apiData.startsWith("PONG"))   return;
+  if (apiData.startsWith("PONG")) return;
 
   Serial.println("[API] RX");
 

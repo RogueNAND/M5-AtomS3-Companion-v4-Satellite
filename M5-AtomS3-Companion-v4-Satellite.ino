@@ -93,6 +93,11 @@ struct UpdateQueue {
 // Function Prototypes
 // ============================================================================
 
+// Main helpers
+void hideReconnectIndicator();
+void resetConnectionHealth();
+unsigned long getBackoffInterval(unsigned long sinceTime);
+
 // Display.ino
 bool parseColorToken(const String& line, const String& key, int &r, int &g, int &b);
 void clearScreen(uint16_t color = BLACK);
@@ -104,10 +109,12 @@ void setText(const String& txt, int fontSizeOverride = 0);
 void analyseLayout(int fontSizeOverride = 0);
 void handleKeyStateTextField(const String& line);
 void handleTextModeColors(const String& line);
+void drawReconnectingOverlay();
 
 // Hardware.ino
 void setupLED();
 void setExternalLedColor(uint8_t r, uint8_t g, uint8_t b);
+void updateReconnectingLED();
 
 // Network.ino
 void sendAddDevice();
@@ -155,8 +162,8 @@ bool forceRouterModeOnBoot  = false;
 // Timing
 unsigned long lastPingTime    = 0;
 unsigned long lastConnectTry  = 0;
-const unsigned long connectRetryMs = 5000;
-const unsigned long pingIntervalMs = 2000;
+unsigned long firstDisconnectTime = 0;         // When we first lost connection
+const unsigned long pingIntervalMs = 1000;
 
 // Display & LED
 int brightness = 100;
@@ -206,6 +213,27 @@ UpdateQueue updateQueue;
 bool isRenderingNow = false;
 unsigned long lastRenderDuration = 0;
 
+// Connection health tracking
+unsigned long lastMessageTime = 0;              // Timestamp of last received message
+unsigned long lastContentUpdateTime = 0;        // Timestamp of last KEY-STATE (bitmap/text)
+int unansweredPingCount = 0;                    // Number of pings sent without any response
+const int maxUnansweredPings = 2;               // Disconnect after 2 unanswered pings
+bool hasConnectedOnce = false;                  // Track if we've ever successfully connected
+
+// Connection state
+enum ConnectionState {
+  CONN_CONNECTED,      // Healthy connection
+  CONN_DISCONNECTED,   // TCP down OR message timeout
+  CONN_RECONNECTING    // Actively reconnecting
+};
+ConnectionState connectionState = CONN_CONNECTED;  // Start in CONNECTED (boot screen handles initial state)
+bool showingReconnectIndicator = false;
+
+// LED blink state
+unsigned long lastBlinkTime = 0;
+const unsigned long blinkIntervalMs = 500;  // 500ms blink cycle
+bool blinkState = false;
+
 void logger(const String& s, const String& type = "info") {
   Serial.println(s);
 }
@@ -213,6 +241,42 @@ void logger(const String& s, const String& type = "info") {
 void enqueueUpdate(const PendingUpdate& update) {
   updateQueue.push(update);
 }
+
+// ============================================================================
+// Connection State Helpers
+// ============================================================================
+
+void hideReconnectIndicator() {
+  if (showingReconnectIndicator) {
+    showingReconnectIndicator = false;
+    if (displayMode == DISPLAY_TEXT) {
+      refreshTextDisplay();  // Redraw to remove overlay
+    }
+    // BITMAP mode: next KEY-STATE will overwrite overlay naturally
+  }
+}
+
+void resetConnectionHealth() {
+  lastMessageTime = millis();
+  lastContentUpdateTime = millis();  // Reset inactivity timer
+  unansweredPingCount = 0;
+  firstDisconnectTime = 0;  // Reset reconnect backoff on successful connection
+}
+
+unsigned long getBackoffInterval(unsigned long sinceTime) {
+  // Unified progressive backoff: 1s → 5s after 1min → 15s after 15min
+  if (sinceTime == 0) return 1000;
+
+  unsigned long elapsed = millis() - sinceTime;
+
+  if (elapsed > 900000) return 15000;  // 15+ minutes
+  if (elapsed > 300000)  return 5000;  // 5+ minute
+  return 1000;                         // < 1 minute
+}
+
+// ============================================================================
+// Bitmap Processing
+// ============================================================================
 
 void processPendingBitmap(const String& bitmapBase64) {
   // Move existing decode logic from Network.ino here
@@ -307,6 +371,11 @@ void setup() {
   setupRestServer();
   initializeMDNS();
 
+  // Initialize connection state (boot screen shows "Ready", main loop will connect)
+  lastMessageTime = millis();
+  connectionState = CONN_CONNECTED;
+  hasConnectedOnce = false;
+
   clearScreen(BLACK);
   setExternalLedColor(0, 0, 0);
 
@@ -327,33 +396,75 @@ void loop() {
 
   unsigned long now = millis();
 
-  // Companion connection/reconnect
-  if (!client.connected() && (now - lastConnectTry >= connectRetryMs)) {
+  // ============================================================================
+  // Connection Health & Reconnection
+  // ============================================================================
+
+  bool tcpConnected = client.connected();
+  bool tooManyUnansweredPings = hasConnectedOnce && (unansweredPingCount >= maxUnansweredPings);
+  bool isHealthy = tcpConnected && !tooManyUnansweredPings;
+
+  // State transitions based on health
+  if (!isHealthy && connectionState == CONN_CONNECTED) {
+    // Connection degraded
+    connectionState = CONN_DISCONNECTED;
+    firstDisconnectTime = millis();  // Start backoff timer
+    Serial.printf("[CONN] Unhealthy (TCP:%d Pings:%d) - disconnecting\n", tcpConnected, unansweredPingCount);
+  }
+  else if (isHealthy && connectionState == CONN_DISCONNECTED) {
+    // Connection recovered
+    connectionState = CONN_CONNECTED;
+    Serial.println("[CONN] Healthy - reconnected");
+    hideReconnectIndicator();
+    sendAddDevice();
+  }
+
+  // Attempt reconnection with progressive backoff
+  unsigned long reconnectInterval = getBackoffInterval(firstDisconnectTime);
+  if (!tcpConnected && (now - lastConnectTry >= reconnectInterval)) {
+    connectionState = CONN_RECONNECTING;
     lastConnectTry = now;
-    Serial.print("[NET] Connecting to Companion ");
-    Serial.print(companion_host);
-    Serial.print(":");
-    Serial.println(companion_port);
+
+    Serial.printf("[NET] Reconnecting (backoff: %lus)\n", reconnectInterval / 1000);
 
     if (client.connect(companion_host, atoi(companion_port))) {
-      Serial.println("[NET] Connected to Companion API");
-      drawCenterText("Connected", GREEN, BLACK);
+      Serial.println("[NET] Connected successfully");
+      connectionState = CONN_CONNECTED;
+      resetConnectionHealth();
+      hideReconnectIndicator();
       sendAddDevice();
       lastPingTime = millis();
     } else {
-      Serial.println("[NET] Companion connect failed");
+      Serial.println("[NET] Connection failed");
+      connectionState = CONN_DISCONNECTED;
     }
   }
 
-  // Handle Companion traffic
+  // ============================================================================
+  // Visual Feedback (only after first successful connection)
+  // ============================================================================
+
+  if ((connectionState == CONN_DISCONNECTED || connectionState == CONN_RECONNECTING) && hasConnectedOnce) {
+    if (!showingReconnectIndicator) {
+      drawReconnectingOverlay();
+      showingReconnectIndicator = true;
+    }
+    updateReconnectingLED();
+  }
+
+  // ============================================================================
+  // Companion Communication (when connected)
+  // ============================================================================
+
   if (client.connected()) {
+    // Receive and parse incoming messages
     while (client.available()) {
       String line = client.readStringUntil('\n');
       line.trim();
       if (line.length() > 0) parseAPI(line);
     }
 
-    // Process next update from queue
+    // Process display update queue
     if (!isRenderingNow && !updateQueue.isEmpty()) {
       isRenderingNow = true;
       unsigned long renderStart = millis();
@@ -389,12 +500,10 @@ void loop() {
       Serial.printf("[RENDER] Complete in %lu ms (queue size: %d)\n", lastRenderDuration, updateQueue.count);
     }
 
-    // Button press: send KEY-PRESS message
+    // Handle button events
     if (M5.BtnA.wasPressed()) {
-      Serial.println("[BTN] Short press -> KEY=0 PRESSED=true");
       String companionDeviceID = "m5atom-s3:" + deviceID.substring(deviceID.length() - 5);
       client.println("KEY-PRESS DEVICEID=" + companionDeviceID + " KEY=0 PRESSED=true");
-
       if (displayMode == DISPLAY_TEXT) {
         textPressedBorder = true;
         refreshTextDisplay();
@@ -402,20 +511,20 @@ void loop() {
     }
 
     if (M5.BtnA.wasReleased()) {
-      Serial.println("[BTN] Release -> KEY=0 PRESSED=false");
       String companionDeviceID = "m5atom-s3:" + deviceID.substring(deviceID.length() - 5);
       client.println("KEY-PRESS DEVICEID=" + companionDeviceID + " KEY=0 PRESSED=false");
-
       if (displayMode == DISPLAY_TEXT) {
         textPressedBorder = false;
         refreshTextDisplay();
       }
     }
 
-    // Periodic keepalive
-    if (now - lastPingTime >= pingIntervalMs) {
+    // Send keepalive ping with adaptive backoff (clamped to 4s max for Companion's 5s timeout)
+    unsigned long pingInterval = min(getBackoffInterval(lastContentUpdateTime), 4000UL);
+    if (now - lastPingTime >= pingInterval) {
       client.println("PING atoms3");
       lastPingTime = now;
+      unansweredPingCount++;
     }
   }
 

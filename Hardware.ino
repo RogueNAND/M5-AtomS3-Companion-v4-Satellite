@@ -72,3 +72,22 @@ void setExternalLedColor(uint8_t r, uint8_t g, uint8_t b) {
   ledcWrite(LED_PIN_GREEN, scaledG);
   ledcWrite(LED_PIN_BLUE,  scaledB);
 }
+
+// ============================================================================
+// Connection Status LED Blink
+// ============================================================================
+
+void updateReconnectingLED() {
+  unsigned long now = millis();
+
+  if (now - lastBlinkTime >= blinkIntervalMs) {
+    blinkState = !blinkState;
+    lastBlinkTime = now;
+
+    if (blinkState) {
+      setExternalLedColor(255, 0, 0);  // Red ON
+    } else {
+      setExternalLedColor(0, 0, 0);    // OFF
+    }
+  }
+}

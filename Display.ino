@@ -656,3 +656,44 @@ void handleTextModeColors(const String& line) {
     refreshTextDisplay();
   }
 }
+
+// ============================================================================
+// Connection Status Overlay
+// ============================================================================
+
+void drawReconnectingOverlay() {
+  int screenW = M5.Display.width();   // 128
+  int screenH = M5.Display.height();  // 128
+
+  // Box dimensions - centered
+  int boxWidth = 110;
+  int boxHeight = 30;
+  int boxX = (screenW - boxWidth) / 2;
+  int boxY = (screenH - boxHeight) / 2;
+
+  // Colors
+  uint16_t bgColor = M5.Display.color565(40, 40, 40);      // Dark gray
+  uint16_t borderColor = M5.Display.color565(255, 0, 0); // Red
+  uint16_t textColor = M5.Display.color565(255, 255, 255);   // White
+
+  // Draw Bakcground "X"
+  for (int i = 0; i < 4; i++) {
+    M5.Display.drawRect(i, i, screenW - i * 2, screenH - i * 2, borderColor);
+  }
+  M5.Display.drawLine(0, 0, screenW, screenH, borderColor);
+  M5.Display.drawLine(0, screenH, screenW, 0, borderColor);
+
+  // Draw background box
+  M5.Display.fillRect(boxX, boxY, boxWidth, boxHeight, bgColor);
+
+  // Draw 2px border
+  M5.Display.drawRect(boxX, boxY, boxWidth, boxHeight, borderColor);
+  M5.Display.drawRect(boxX+1, boxY+1, boxWidth-2, boxHeight-2, borderColor);
+
+  // Draw text
+  M5.Display.setFont(&fonts::Font0);
+  M5.Display.setTextSize(1);
+  M5.Display.setTextColor(textColor, bgColor);
+  M5.Display.setTextDatum(middle_center);
+  M5.Display.drawString("Reconnecting...", screenW / 2, screenH / 2);
+}
